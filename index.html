@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { display: flex; flex-direction: column; font-family: sans-serif; }
+
+    #search-bar { position: relative; padding: 8px; display: flex; gap: 8px; }
+    #search {
+      flex: 1; min-width: 0; padding: 8px; font-size: 14px;
+      border: 1px solid #ccc; border-radius: 4px;
+    }
+    #suggestions {
+      position: absolute; top: 100%; left: 8px; right: 8px;
+      background: white; border: 1px solid #ccc; border-radius: 4px;
+      z-index: 1000; display: none; max-height: 200px; overflow-y: auto;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .suggestion {
+      padding: 8px 12px; cursor: pointer;
+      border-bottom: 1px solid #eee; font-size: 13px;
+    }
+    .suggestion.active { background: #e3f2fd; }
+
+    button {
+      padding: 8px 12px; font-size: 14px; cursor: pointer;
+      border: 1px solid #ccc; border-radius: 4px; background: white;
+    }
+    button:hover:not(:disabled) { background: #f2f2f2; }
+    button:disabled { opacity: 0.5; cursor: default; }
+
+    #map-wrap { flex: 1; position: relative; }
+    #map { position: absolute; inset: 0; }
+
+    #panel {
+      position: absolute; left: 8px; bottom: 24px; z-index: 10;
+      width: 280px; max-width: calc(100% - 16px);
+      background: white; border-radius: 8px; padding: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25); font-size: 14px;
+    }
+    #distance-row { font-size: 13px; color: #555; }
+    #distance { font-size: 32px; font-weight: bold; color: #e8590c; }
+    #time-row { margin: 6px 0 10px; }
+    #pace { width: 56px; padding: 2px 4px; font-size: 14px; }
+    #buttons { display: flex; gap: 6px; margin-top: 10px; }
+    #buttons button { flex: 1; padding: 6px 4px; font-size: 13px; }
+    #hint { margin: 8px 0 0; font-size: 12px; color: #777; }
+
+    button.primary { background: #e8590c; border-color: #e8590c; color: white; }
+    button.primary:hover:not(:disabled) { background: #d9480f; }
+    button.danger { color: #c92a2a; border-color: #ffa8a8; }
+    button.danger:hover:not(:disabled) { background: #fff5f5; }
+
+    #tabs { display: flex; border-bottom: 1px solid #ddd; }
+    .tab {
+      flex: 1; border: none; border-radius: 0; background: none;
+      padding: 10px; font-size: 14px; color: #555;
+      border-bottom: 3px solid transparent;
+    }
+    .tab.active { color: #e8590c; font-weight: bold; border-bottom-color: #e8590c; }
+
+    #save-open { width: 100%; margin-top: 8px; }
+    #save-form { margin-top: 8px; }
+    #save-name { width: 100%; padding: 6px 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+    .row { display: flex; gap: 6px; margin-top: 6px; }
+    .row button { flex: 1; }
+
+    #saved-view {
+      position: absolute; inset: 0; z-index: 20;
+      background: white; overflow-y: auto; padding: 12px;
+    }
+    #saved-header { display: flex; justify-content: space-between; align-items: center; }
+    #saved-header h2 { margin: 0; font-size: 18px; }
+    #saved-status { color: #777; font-size: 14px; }
+    #saved-list { list-style: none; margin: 0; padding: 0; max-width: 640px; }
+    #saved-list li {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 0; border-bottom: 1px solid #eee;
+    }
+    .saved-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .saved-info strong { overflow-wrap: anywhere; }
+    .saved-info span { font-size: 13px; color: #777; }
+
+    #delete-dialog { border: none; border-radius: 8px; padding: 16px; width: min(320px, calc(100% - 32px)); }
+    #delete-dialog::backdrop { background: rgba(0,0,0,0.4); }
+    #delete-dialog p { margin: 0 0 10px; }
+    #delete-password { width: 100%; padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+    #delete-error { color: #c92a2a; font-size: 13px; min-height: 1em; margin-top: 6px !important; }
+
+    /* Aba "Trajetos salvos": esconde a busca e o painel do planejador */
+    body[data-tab="saved"] #search-bar,
+    body[data-tab="saved"] #panel { display: none; }
+    body:not([data-tab="saved"]) #saved-view { display: none; }
+  </style>
+</head>
+<body data-tab="plan">
+  <nav id="tabs">
+    <button class="tab active" data-tab="plan">Planejar</button>
+    <button class="tab" data-tab="saved">Trajetos salvos</button>
+  </nav>
+  <div id="search-bar">
+    <input type="text" id="search" placeholder="Pesquisar endereço..." autocomplete="off">
+    <button id="locate" title="Ir para minha localização">📍</button>
+    <div id="suggestions"></div>
+  </div>
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="panel">
+      <div id="distance-row"><span id="distance">0,00</span> km</div>
+      <div id="time-row">
+        Tempo estimado: <strong id="time">–</strong><br>
+        no ritmo de <input id="pace" value="6:00"> min/km
+      </div>
+      <label><input type="checkbox" id="follow-roads" checked> Seguir as ruas</label>
+      <div id="buttons">
+        <button id="undo">Desfazer</button>
+        <button id="out-and-back">Ida e volta</button>
+        <button id="clear">Limpar</button>
+      </div>
+      <button id="save-open" class="primary">⭐ Salvar trajeto</button>
+      <form id="save-form" hidden>
+        <input id="save-name" maxlength="80" placeholder="Nome do trajeto" required>
+        <div class="row">
+          <button type="submit" id="save-submit" class="primary">Salvar</button>
+          <button type="button" id="save-cancel">Cancelar</button>
+        </div>
+      </form>
+      <p id="hint">Clique no mapa para marcar o trajeto.</p>
+    </div>
+    <section id="saved-view">
+      <div id="saved-header">
+        <h2>Trajetos salvos</h2>
+        <button id="saved-refresh">Atualizar</button>
+      </div>
+      <p id="saved-status"></p>
+      <ul id="saved-list"></ul>
+    </section>
+  </div>
+  <dialog id="delete-dialog">
+    <form id="delete-form">
+      <p>Excluir o trajeto <strong id="delete-name"></strong>?</p>
+      <input type="password" id="delete-password" placeholder="Senha de administrador" required>
+      <p id="delete-error"></p>
+      <div class="row">
+        <button type="submit" id="delete-submit" class="danger">Excluir</button>
+        <button type="button" id="delete-cancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

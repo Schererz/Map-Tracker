@@ -2,6 +2,8 @@
 {
   "name": "map-tracker",
   "compatibility_date": "2026-09-01",
+  // Mantém o endereço map-tracker.<subdominio>.workers.dev ligado a cada deploy
+  "workers_dev": true,
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
